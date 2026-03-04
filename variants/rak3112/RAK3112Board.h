@@ -1,28 +1,43 @@
 #pragma once
 
 #include <Arduino.h>
-
-// LoRa radio module pins for Station G2
-#define  P_LORA_DIO_1   48
-#define  P_LORA_NSS     11
-#define  P_LORA_RESET   21
-#define  P_LORA_BUSY    47
-#define  P_LORA_SCLK    12
-#define  P_LORA_MISO    14
-#define  P_LORA_MOSI    13
+#include <helpers/RefCountedDigitalPin.h>
+#include <helpers/ESP32Board.h>
 
 // built-ins
-//#define  PIN_LED_BUILTIN 35
-//#define  PIN_VEXT_EN     36
-
-#include "ESP32Board.h"
+#ifndef PIN_VBAT_READ
+  #define  PIN_VBAT_READ    1
+#endif
+#ifndef PIN_ADC_CTRL
+  #define  PIN_ADC_CTRL         36
+#endif
+#define  PIN_ADC_CTRL_ACTIVE    LOW
+#define  PIN_ADC_CTRL_INACTIVE  HIGH
+#define  ADC_MULTIPLIER   (3 * 1.73 * 1.187 * 1000)
+#define  BATTERY_SAMPLES 8
 
 #include <driver/rtc_io.h>
 
-class StationG2Board : public ESP32Board {
+class RAK3112Board : public ESP32Board {
+private:
+  bool adc_active_state;
+
 public:
+  RefCountedDigitalPin periph_power;
+
+  RAK3112Board() : periph_power(PIN_VEXT_EN) { }
+
   void begin() {
     ESP32Board::begin();
+
+    // Auto-detect correct ADC_CTRL pin polarity (different for boards >3.2)
+    pinMode(PIN_ADC_CTRL, INPUT);
+    adc_active_state = !digitalRead(PIN_ADC_CTRL);
+
+    pinMode(PIN_ADC_CTRL, OUTPUT);
+    digitalWrite(PIN_ADC_CTRL, !adc_active_state); // Initially inactive
+
+    periph_power.begin();
 
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason == ESP_RST_DEEPSLEEP) {
@@ -59,11 +74,23 @@ public:
     esp_deep_sleep_start();   // CPU halts here and never returns!
   }
 
+  void powerOff() override {
+    enterDeepSleep(0);
+  }
+
   uint16_t getBattMilliVolts() override {
-    return 0;
+    analogReadResolution(12);
+
+    uint32_t raw = 0;
+    for (int i = 0; i < BATTERY_SAMPLES; i++) {
+      raw += analogRead(PIN_VBAT_READ);
+    }
+    raw = raw / BATTERY_SAMPLES;
+
+    return (ADC_MULTIPLIER * raw) / 4096;
   }
 
   const char* getManufacturerName() const override {
-    return "Station G2";
+    return "RAK 3112";
   }
 };

@@ -61,10 +61,9 @@ void HeltecV4Board::begin() {
     rtc_gpio_hold_en((gpio_num_t)P_LORA_PA_POWER);
     rtc_gpio_hold_en((gpio_num_t)P_LORA_PA_EN);
 
-    if (pin_wake_btn < 0) {
-      esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet
-    } else {
-      esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1) | (1L << pin_wake_btn), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet OR wake btn
+    esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet
+    if (pin_wake_btn >= 0) {
+      esp_sleep_enable_ext0_wakeup((gpio_num_t)pin_wake_btn, LOW);  // wake up on: button press (LOW)
     }
 
     if (secs > 0) {
@@ -76,7 +75,13 @@ void HeltecV4Board::begin() {
   }
 
   void HeltecV4Board::powerOff()  {
+#ifdef PIN_USER_BTN
+    while (digitalRead(PIN_USER_BTN) == LOW) { delay(10); }
+    delay(50);
+    enterDeepSleep(0, PIN_USER_BTN);
+#else
     enterDeepSleep(0);
+#endif
   }
 
   uint16_t HeltecV4Board::getBattMilliVolts()  {

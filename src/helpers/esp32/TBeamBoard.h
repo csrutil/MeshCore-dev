@@ -2,16 +2,7 @@
 
 #if defined(TBEAM_SUPREME_SX1262) || defined(TBEAM_SX1262) || defined(TBEAM_SX1276)
 
-#include <Wire.h>
-#include <Arduino.h>
-#include "XPowersLib.h"
-#include "helpers/ESP32Board.h"
-#include <driver/rtc_io.h>
-//#include <RadioLib.h>
-//#include <helpers/RadioLibWrappers.h>
-//#include <helpers/CustomSX1262Wrapper.h>
-//#include <helpers/CustomSX1276Wrapper.h>
-
+// Define pin mappings BEFORE including ESP32Board.h so sleep() can use P_LORA_DIO_1
 #ifdef TBEAM_SUPREME_SX1262
   // LoRa radio module pins for TBeam S3 Supreme SX1262
   #define  P_LORA_DIO_0   -1   //NC
@@ -90,6 +81,13 @@
 //   SX1276
 // };
 
+// Include headers AFTER pin definitions so ESP32Board::sleep() can use P_LORA_DIO_1
+#include <Wire.h>
+#include <Arduino.h>
+#include "XPowersLib.h"
+#include "helpers/ESP32Board.h"
+#include <driver/rtc_io.h>
+
 class TBeamBoard : public ESP32Board {
 XPowersLibInterface *PMU = NULL;
 //PhysicalLayer * pl;
@@ -142,10 +140,9 @@ public:
 
   rtc_gpio_hold_en((gpio_num_t)P_LORA_NSS);
 
-  if (pin_wake_btn < 0) {
-    esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet
-  } else {
-    esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1) | (1L << pin_wake_btn), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet OR wake btn
+  esp_sleep_enable_ext1_wakeup( (1L << P_LORA_DIO_1), ESP_EXT1_WAKEUP_ANY_HIGH);  // wake up on: recv LoRa packet
+  if (pin_wake_btn >= 0) {
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)pin_wake_btn, LOW);  // wake up on: button press (LOW)
   }
 
   if (secs > 0) {

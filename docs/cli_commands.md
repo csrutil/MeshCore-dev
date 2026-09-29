@@ -617,7 +617,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - `set tx_policy budget` — use the airtime budget limit (default)
 - `set tx_policy burst 1000 200` — bursts of up to 1 second of airtime, then at least 200 ms of quiet
 
-> **Note:** Added in firmware v1.18.0. The policy and its limits are a mechanism only; you are responsible for choosing values that comply with your jurisdiction and channel plan.
+> **Note:** The policy and its limits are a mechanism only; you are responsible for choosing values that comply with your jurisdiction and channel plan.
 
 ---
 

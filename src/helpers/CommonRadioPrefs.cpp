@@ -125,7 +125,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     char tmp[64];
     StrHelper::strncpy(tmp, &command[14], sizeof(tmp));
     const char* parts[3];
-    int num = mesh::Utils::parseTextParts(tmp, parts, 3);
+    int num = mesh::Utils::parseTextParts(tmp, parts, 3, ' ');
     if (num > 0 && strcmp(parts[0], "budget") == 0) {
       setTxPolicyMode(TX_POLICY_MODE_BUDGET);
       strcpy(reply, "OK");

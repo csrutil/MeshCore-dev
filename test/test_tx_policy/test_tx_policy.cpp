@@ -56,6 +56,7 @@ public:
   uint8_t tx_policy_mode = TX_POLICY_MODE_BUDGET;   // runtime-selectable, like the examples read from prefs
 protected:
   uint8_t getTxPolicyMode() const override { return tx_policy_mode; }
+  uint32_t getBurstQuietMs() const override { return 200; }
 };
 
 

@@ -75,15 +75,15 @@ void BurstTxPolicy::begin(uint32_t now) {
 bool BurstTxPolicy::canStart(uint32_t now, uint32_t pkt_airtime, uint32_t mtu_airtime,
                              uint32_t& retry_at) {
   (void)mtu_airtime;
-  if ((uint32_t)(now - last_tx_end) >= quiet_ms) {
+  if ((uint32_t)(now - last_tx_end) >= quietMs()) {
     burst_used_ms = 0;   // quiet period elapsed: start a new burst
   }
 
-  if (burst_used_ms + pkt_airtime <= max_ms) {
+  if (burst_used_ms + pkt_airtime <= maxMs()) {
     retry_at = now;
     return true;
   }
-  retry_at = last_tx_end + quiet_ms;   // wait out the quiet period
+  retry_at = last_tx_end + quietMs();   // wait out the quiet period
   return false;
 }
 
@@ -96,17 +96,17 @@ void BurstTxPolicy::onTxDone(uint32_t now, uint32_t est_airtime, uint32_t actual
 }
 
 void BurstTxPolicy::onTxAborted(uint32_t now) {
-  burst_used_ms = max_ms;   // treat the burst as fully used
+  burst_used_ms = maxMs();   // treat the burst as fully used
   last_tx_end = now;        // quiet period starts now
 }
 
 bool BurstTxPolicy::canChain(uint32_t pkt_airtime) const {
-  return burst_used_ms + pkt_airtime <= max_ms;
+  return burst_used_ms + pkt_airtime <= maxMs();
 }
 
 uint32_t BurstTxPolicy::remainingTxMs(uint32_t now) const {
   (void)now;
-  return (burst_used_ms >= max_ms) ? 0 : (max_ms - burst_used_ms);
+  return (burst_used_ms >= maxMs()) ? 0 : (maxMs() - burst_used_ms);
 }
 
 }

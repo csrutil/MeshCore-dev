@@ -1,6 +1,7 @@
 #pragma once
 #include "ConfigSerializer.h"
 #include "KeyValueStore.h"
+#include "../TxPolicy.h"
 
 class CommonRadioPrefs : public ConfigSerializer, public KeyValueStore {
   bool _is_dirty = false;
@@ -61,6 +62,15 @@ public:
 
   virtual uint8_t getFEMTxGain() const = 0;
   virtual void setFEMTxGain(uint8_t g) = 0;
+
+  virtual uint8_t getTxPolicyMode() const = 0;
+  virtual void setTxPolicyMode(uint8_t mode) = 0;
+
+  virtual uint32_t getBurstMaxTxMs() const = 0;
+  virtual void setBurstMaxTxMs(uint32_t ms) = 0;
+
+  virtual uint32_t getBurstQuietMs() const = 0;
+  virtual void setBurstQuietMs(uint32_t ms) = 0;
 
   bool handleCommand(const char* command, uint32_t sender_timestamp, char* reply);
 

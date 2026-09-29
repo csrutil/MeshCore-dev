@@ -137,14 +137,8 @@ protected:
   uint16_t _err_flags;
 
   Dispatcher(Radio& radio, MillisecondClock& ms, PacketManager& mgr)
-    : _radio(&radio), _ms(&ms), _mgr(&mgr)
-#if defined(TX_POLICY_BURST)
-      , burst_policy(TX_BURST_MAX_MS, TX_BURST_QUIET_MS)
-      , tx_policy(&burst_policy)
-#else
-      , budget_policy(*this)
-      , tx_policy(&budget_policy)
-#endif
+    : _radio(&radio), _ms(&ms), _mgr(&mgr),
+      budget_policy(*this), burst_policy(*this), tx_policy(&budget_policy)
   {
     outbound = NULL;
     total_air_time = rx_air_time = 0;
@@ -166,6 +160,9 @@ protected:
   virtual const char* getLogDateTime() { return ""; }
 
   virtual float getAirtimeBudgetFactor() const;
+  virtual uint8_t getTxPolicyMode() const { return TX_POLICY_MODE_BUDGET; }
+  virtual uint32_t getBurstMaxTxMs() const { return 1000; }   // max total estimated TX airtime per burst
+  virtual uint32_t getBurstQuietMs() const { return 0; }   // quiet time between bursts
   virtual int calcRxDelay(float score, uint32_t air_time) const;
   virtual uint32_t getCADFailRetryDelay() const;
   virtual uint32_t getCADFailMaxDuration() const;
@@ -203,15 +200,12 @@ public:
 private:
   void checkRecv();
   void checkSend();
+  void updateTxPolicy();   // applies a getTxPolicyMode() change when no send is in flight
   bool startOutboundSend(Packet* pkt);   // shared by first send and chained sends
 
-#if defined(TX_POLICY_BURST)
+  AirtimeBudgetTxPolicy budget_policy;
   BurstTxPolicy burst_policy;
   TxPolicy* tx_policy;
-#else
-  AirtimeBudgetTxPolicy budget_policy;
-  TxPolicy* tx_policy;
-#endif
 };
 
 }

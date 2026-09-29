@@ -99,6 +99,45 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     return true;
   }
 
+  if (strcmp(command, "get tx_policy") == 0) {
+    if (getTxPolicyMode() == TX_POLICY_MODE_BURST) {
+      sprintf(reply, "> burst %d %d", (uint32_t)getBurstMaxTxMs(), (uint32_t)getBurstQuietMs());
+    } else {
+      strcpy(reply, "> budget");
+    }
+    return true;
+  }
+  if (memcmp(command, "set tx_policy ", 14) == 0) {
+    char tmp[64];
+    strcpy(tmp, &command[14]);
+    const char* parts[3];
+    int num = mesh::Utils::parseTextParts(tmp, parts, 3);
+    if (num > 0 && strcmp(parts[0], "budget") == 0) {
+      setTxPolicyMode(TX_POLICY_MODE_BUDGET);
+      strcpy(reply, "OK");
+    } else if (num > 0 && strcmp(parts[0], "burst") == 0) {
+      if (num < 3) {   // no safe default for the quiet time
+        strcpy(reply, "ERROR: tx_policy burst requires max_ms and quiet_ms");
+      } else {
+        uint32_t max_ms = atol(parts[1]);
+        uint32_t quiet_ms = atol(parts[2]);
+        if (max_ms < 1 || max_ms > 8000) {   // above 8000 every burst trips the non-Rx watchdog flag
+          strcpy(reply, "ERROR: tx_policy max_ms must be 1-8000");
+        } else if (quiet_ms < 1) {
+          strcpy(reply, "ERROR: tx_policy quiet_ms must be >= 1");
+        } else {
+          setBurstMaxTxMs(max_ms);
+          setBurstQuietMs(quiet_ms);
+          setTxPolicyMode(TX_POLICY_MODE_BURST);
+          strcpy(reply, "OK");
+        }
+      }
+    } else {
+      strcpy(reply, "ERROR: tx_policy must be 'budget' or 'burst <max_ms> <quiet_ms>'");
+    }
+    return true;
+  }
+
   if (strcmp(command, "get int.thresh") == 0) {
     sprintf(reply, "> %d", (uint32_t) getIntThresh());
     return true;

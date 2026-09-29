@@ -252,13 +252,23 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
   }
 }
 
+void Dispatcher::updateTxPolicy() {
+  TxPolicy* desired = (getTxPolicyMode() == TX_POLICY_MODE_BURST)
+                        ? (TxPolicy*)&burst_policy : (TxPolicy*)&budget_policy;
+  if (desired != tx_policy && outbound == NULL) {   // no switch while a send is in flight
+    tx_policy = desired;
+    tx_policy->begin((uint32_t)_ms->getMillis());   // new policy starts from a clean state
+  }
+}
+
 void Dispatcher::checkSend() {
+  updateTxPolicy();
+
   Packet* pkt = _mgr->findNextOutbound(_ms->getMillis());
   if (pkt == NULL) return;
 
   uint32_t pkt_airtime = _radio->getEstAirtimeFor(pkt->getRawLength());
-#if defined(TX_POLICY_BURST)
-  if (pkt_airtime > TX_BURST_MAX_MS) {   // could never fit in a burst
+  if (tx_policy == &burst_policy && pkt_airtime > getBurstMaxTxMs()) {   // could never fit in a burst
     MESH_DEBUG_PRINTLN("%s Dispatcher::checkSend(): dropping packet, est airtime %d ms exceeds burst max!", getLogDateTime(), (uint32_t)pkt_airtime);
     pkt = _mgr->getNextOutbound(_ms->getMillis());
     if (pkt) {
@@ -267,7 +277,6 @@ void Dispatcher::checkSend() {
     }
     return;
   }
-#endif
 
   uint32_t retry_at;
   if (!tx_policy->canStart((uint32_t)_ms->getMillis(), pkt_airtime, _radio->getEstAirtimeFor(MAX_TRANS_UNIT), retry_at)) {

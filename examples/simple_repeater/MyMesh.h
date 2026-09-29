@@ -131,6 +131,15 @@ protected:
   float getAirtimeBudgetFactor() const override {
     return _prefs.airtime_factor;
   }
+  uint8_t getTxPolicyMode() const override {
+    return _prefs.tx_policy;
+  }
+  uint32_t getBurstMaxTxMs() const override {
+    return _prefs.burst_max_ms;
+  }
+  uint32_t getBurstQuietMs() const override {
+    return _prefs.burst_quiet_ms;
+  }
 
   bool allowPacketForward(const mesh::Packet* packet) override;
   const char* getLogDateTime() override;

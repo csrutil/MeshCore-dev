@@ -2,26 +2,21 @@
 
 #include <stdint.h>
 
-// Select the burst TX policy by defining TX_POLICY_BURST (e.g. in build_flags).
-#ifdef TX_POLICY_BURST
-  #ifndef TX_BURST_MAX_MS
-    #define TX_BURST_MAX_MS  1000   // max total estimated TX airtime per burst, in ms
-  #endif
-  #ifndef TX_BURST_QUIET_MS
-    #error "TX_POLICY_BURST requires TX_BURST_QUIET_MS (minimum quiet time between bursts, in ms)"
-  #endif
-#endif
+#define TX_POLICY_MODE_BUDGET  0
+#define TX_POLICY_MODE_BURST   1
 
 namespace mesh {
 
 /**
- * \brief  Runtime values read by AirtimeBudgetTxPolicy; implemented by Dispatcher,
+ * \brief  Runtime values read by the TX policies; implemented by Dispatcher,
  *      since the preferences can change while running.
 */
 class TxPolicyEnv {
 public:
   virtual float getAirtimeBudgetFactor() const = 0;
   virtual unsigned long getDutyCycleWindowMs() const = 0;
+  virtual uint32_t getBurstMaxTxMs() const = 0;
+  virtual uint32_t getBurstQuietMs() const = 0;
 };
 
 /**
@@ -91,14 +86,16 @@ public:
  *      quiet_ms (radio in Rx), then the next burst starts.
 */
 class BurstTxPolicy : public TxPolicy {
+  TxPolicyEnv* _env;
   uint32_t burst_used_ms;   // estimated airtime sent in the current burst
   uint32_t last_tx_end;
-  const uint32_t max_ms;
-  const uint32_t quiet_ms;
+
+  uint32_t maxMs() const { return _env->getBurstMaxTxMs(); }
+  uint32_t quietMs() const { return _env->getBurstQuietMs(); }
 
 public:
-  BurstTxPolicy(uint32_t burst_max_ms, uint32_t burst_quiet_ms)
-    : max_ms(burst_max_ms), quiet_ms(burst_quiet_ms)
+  BurstTxPolicy(TxPolicyEnv& env)
+    : _env(&env)
   {
     burst_used_ms = 0;
     last_tx_end = 0;

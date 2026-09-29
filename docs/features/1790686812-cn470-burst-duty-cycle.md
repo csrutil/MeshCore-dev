@@ -152,13 +152,47 @@ Known behavior, not changed: when `canStart()` fails, `next_tx_time = retry_at`.
 
 Not changed (review nits): `PacketQueue::bestIndex()` is public; `TxPolicy` has no virtual destructor (never deleted through a base pointer); `TX_BURST_MAX_MS > 8000` would set the non-RX watchdog error flag.
 
+### 2026-09-29 21:40 +08 — Claude — unknown — not specified
+
+Implemented Revision 1 (runtime policy selection) on top of the compile-time version. TSAO asked not to build; all results `unverified`.
+
+Changes:
+
+- `src/TxPolicy.h` / `src/TxPolicy.cpp`: removed `TX_POLICY_BURST` / `TX_BURST_MAX_MS` / `TX_BURST_QUIET_MS` and the `#error`. Added `TX_POLICY_MODE_BUDGET` / `TX_POLICY_MODE_BURST` (0/1). `TxPolicyEnv` gained `getBurstMaxTxMs()` / `getBurstQuietMs()` (pure virtual, like `getAirtimeBudgetFactor()`). `BurstTxPolicy` now takes a `TxPolicyEnv&` and reads B and X at runtime through private helpers `maxMs()` / `quietMs()`; the constructor no longer takes constants.
+- `src/Dispatcher.h` / `src/Dispatcher.cpp`: both policy objects are always held; ctor inits `tx_policy = &budget_policy`. New protected virtuals `getTxPolicyMode()` (default budget), `getBurstMaxTxMs()` (default 1000), `getBurstQuietMs()` (default 0); the latter two also override the new `TxPolicyEnv` pure virtuals, so `BurstTxPolicy` picks up subclass overrides. New private `updateTxPolicy()` runs at the top of `checkSend()`: when `getTxPolicyMode()` no longer matches the active policy and `outbound == NULL`, it switches `tx_policy` and calls `begin(now)`. The oversized-packet drop now uses the runtime `getBurstMaxTxMs()` and is gated on `tx_policy == &burst_policy` (burst mode only). Default budget behaviour is unchanged: with the default virtuals, `updateTxPolicy()` never fires and the drop never triggers.
+- `src/helpers/CommonRadioPrefs.h` / `.cpp`: getter/setter pairs `get/setTxPolicyMode`, `get/setBurstMaxTxMs`, `get/setBurstQuietMs` (pure virtual, implemented in both `RadioPrefs`). New CLI commands in `handleCommand` next to `af`/`dutycycle`: `get tx_policy` → `> budget` or `> burst <max_ms> <quiet_ms>`; `set tx_policy budget`; `set tx_policy burst <max_ms> <quiet_ms>` (both values required, max 1-8000, quiet >= 1; error replies in the `set af` style). Uses `mesh::Utils::parseTextParts` like `set radio`.
+- `src/helpers/CommonCLI.h` (`NodePrefs`) and `examples/companion_radio/NodePrefs.h`: fields `tx_policy` (uint8, default 0), `burst_max_ms` (uint32, default 1000), `burst_quiet_ms` (uint32, default 0); `def("tx_policy"...`, `def("burst_max_ms"...`, `def("burst_quiet_ms"...` added to `RadioPrefs::structure()` right after `af`; getter/setter overrides. NOT added to the legacy binary loader in `CommonCLI::loadPrefsInt()`.
+- Missing-key evidence (ConfigSerializer): in `ConfigSerializer::def(key, T& value)` (READ branch, ConfigSerializer.cpp), the value is only assigned inside `if (_context->keyMatch(_depth, key))`, and `loadSerial()` re-runs `structure()` only when a `TOK_VALUE` is parsed. A prefs file that contains none of the new keys therefore never assigns them, and the in-memory defaults (budget / 1000 / 0) survive the load. Covered by the `MissingTxPolicyKeysKeepDefaults` test.
+- Examples: the three virtuals are overridden from `_prefs` next to `getAirtimeBudgetFactor()` in `examples/simple_repeater/MyMesh.h`, `examples/simple_room_server/MyMesh.h`, `examples/simple_sensor/SensorMesh.h/.cpp`, and `examples/companion_radio/MyMesh.h`. `simple_secure_chat` left on the default budget policy (its prefs are not `CommonRadioPrefs`).
+- `docs/cli_commands.md`: new section "View or change the TX policy" between `af` and `int.thresh`, matching the existing format.
+- `platformio.ini`: removed `[env:native_burst]` and its comment; one `[env:native]` now covers both policies. Added `../src/helpers/CommonRadioPrefs.cpp` and `../src/helpers/TxtDataHelpers.cpp` to the filter so the CLI can be host-tested.
+- `test/mocks/target.h` (new): minimal `WRAPPER_CLASS radio_driver` stub for `CommonRadioPrefs.cpp` on the host. `test/mocks/Arduino.h`: added `constrain`, `ltoa` and `using std::abs` (needed by `CommonRadioPrefs.cpp` / `TxtDataHelpers.cpp` on the host).
+- `test/test_tx_policy/test_tx_policy.cpp`: burst policy tests now construct `BurstTxPolicy(env)` with runtime B/X; new `ReadsLimitsFromEnvAtRuntime` (B and X changes take effect immediately); removed all `TX_POLICY_BURST` conditionals. Dispatcher burst tests set a runtime `tx_policy_mode` field on `TestDispatcher` (which overrides `getTxPolicyMode()`); new tests `OversizedPacketSentInBudgetMode`, `ModeChangeDuringSendAppliesAfterCompletion` (switch waits until no send is in flight; the completing send follows the old policy, and the burst chain only starts from the next `checkSend`), and `SwitchingBackToBudgetStartsWithFullBudget`. New `TxPolicyCli` tests: get default, `set ... budget`, `set ... burst <max> <quiet>` (values + get reply), missing quiet value, max above 8000, quiet 0, unknown policy.
+- `test/test_companion_node_prefs/test_companion_node_prefs.cpp`: `MissingTxPolicyKeysKeepDefaults` (file without the new keys keeps budget/1000/0) and `TxPolicyKeysRoundTrip` (save/load of all three keys through the companion `NodePrefs`).
+
+Non-obvious decisions / deviations from Revision 1:
+
+1. The runtime mode-switch check lives at the top of `checkSend()` (not in `loop()`): `checkSend()` is only reached when no send is in flight anyway, so the `outbound == NULL` guard is kept for explicitness and the switch happens exactly where the policy is first used. A mode change made while a burst send is in flight therefore applies from the next `checkSend()`; the completion/chaining path of the in-flight send still follows the old policy. This matches "no switch while a send is in flight".
+2. The oversized drop is gated on the active policy pointer (`tx_policy == &burst_policy`) rather than on `getTxPolicyMode()`: at `checkSend()` time `updateTxPolicy()` has already applied any pending switch (there is no send in flight), so the two are equivalent and the pointer reflects what will actually run.
+3. New `TxPolicyEnv` members are pure virtuals (consistent with the two existing ones); consequence: any out-of-repo `TxPolicyEnv` implementation would need the two new methods, and the test mock was updated.
+4. CLI tests required hosting `CommonRadioPrefs.cpp` (needs `target.h` -> new `test/mocks/target.h` with a `radio_driver` stub) and `TxtDataHelpers.cpp` (needs `ltoa`/`abs` on the host -> added to `test/mocks/Arduino.h`). Three small mock additions; judged within "few new mocks".
+5. Docs version note says "Added in firmware v1.18.0" — an assumption: the tree still says `v1.17.1`; no changelog states the next version.
+6. Prefs round-trip/missing-key tests cover the companion `NodePrefs` copy (already host-reachable, no new mocks needed); the `CommonCLI.h` copy uses the same `ConfigSerializer` mechanism but is not itself host-tested (its header pulls in the full CLI stack).
+
+Proof gaps (all `unverified` — TSAO asked not to build or run tests):
+
+- `pio test -e native` not run; the new/changed tests and the newly host-compiled sources (`CommonRadioPrefs.cpp`, `TxtDataHelpers.cpp`, `test/mocks/target.h`, `constrain`/`ltoa`/`abs` in `test/mocks/Arduino.h`) are compile- and run-unverified.
+- No firmware target compiled; firmware builds unverified.
+- `CommonCLI.h` `NodePrefs` prefs round-trip itself not host-tested (mechanism verified statically + via the companion copy test).
+- Hardware checks (SDR / TX pin: burst <= B, silence >= X, no RX during burst) not performed; legacy `/com_prefs` upgrade path not exercised.
+
 ### 2026-09-29 21:45 +08 — Claude — claude-opus-5-5 — medium
 
 Renamed `PacketManager::peekNextOutbound()` → `findNextOutbound()` and `PacketQueue::peek()` → `find()` (TSAO: `peek` read as "pick from the queue"). "find" does not change the queue; "get" removes. Behavior unchanged. Earlier entries keep the old name.
 
 ## Final Result
 
-Implemented as planned: compile-time selectable TX policy (`TX_POLICY_BURST`), default airtime-budget behavior moved unchanged into `AirtimeBudgetTxPolicy`, new `BurstTxPolicy` with chaining that never switches the radio to RX mid-burst, quiet period `TX_BURST_QUIET_MS` between bursts, oversized-packet drop, `PacketManager::findNextOutbound()`, and googletest coverage for both policies and both Dispatcher wirings. Tests and builds are unverified per the no-build constraint; hardware validation pending.
+Implemented as planned, now under Revision 1: the TX policy is selected at runtime by the CLI config `tx_policy` (0 = budget, default, 1 = burst) with `burst_max_ms` / `burst_quiet_ms` prefs; `Dispatcher` holds both policy objects and switches (with `begin(now)`) when the mode changes and no send is in flight; `BurstTxPolicy` reads its limits at runtime through `TxPolicyEnv`; the oversized-packet drop uses the runtime limit in burst mode only; both `NodePrefs` copies persist the three keys with defaults budget / 1000 / 0 and older prefs files keep those defaults; CLI `get/set tx_policy` documented in `docs/cli_commands.md`; no compile-time defines remain. Default behaviour (budget, no config) matches the code at 37a71d93. Googletest coverage for both policies, runtime mode switching, the CLI parsing and the prefs round-trip/missing-key cases. Tests and builds are unverified per the no-build constraint; hardware validation pending.
 
 ## Review
 

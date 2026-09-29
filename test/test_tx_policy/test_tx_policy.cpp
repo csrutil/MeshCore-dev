@@ -3,6 +3,7 @@
 #include "Dispatcher.h"
 #include "helpers/StaticPoolPacketManager.h"
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -124,9 +125,9 @@ TEST(TxAirtimeBudget, RefillHandlesMillisWrap) {
   policy.onTxDone(0xFFFFFFF0UL, 100, 1800000, next_tx);   // debit the whole budget
 
   uint32_t retry_at;
-  // 0x90 - 0xFFFFFFF0 wraps to 0x160 = 352 elapsed -> refill 176
-  EXPECT_TRUE(policy.canStart(0x90UL, 100, 300, retry_at));
-  EXPECT_EQ(policy.remainingTxMs(0x90UL), 176UL);
+  // 0x150 - 0xFFFFFFF0 wraps to 0x160 = 352 elapsed -> refill 176
+  EXPECT_TRUE(policy.canStart(0x150UL, 100, 300, retry_at));
+  EXPECT_EQ(policy.remainingTxMs(0x150UL), 176UL);
 }
 
 TEST(TxAirtimeBudget, DoesNotChain) {
@@ -234,7 +235,7 @@ TEST(TxBurst, HandlesMillisWrapAround) {
   uint32_t retry_at;
   // gap below the quiet period: 0xFFFFFF80 - 0xFFFFFF00 = 0x80 = 128
   EXPECT_FALSE(policy.canStart(0xFFFFFF80UL, 300, 2550, retry_at));
-  EXPECT_EQ(retry_at, 0xFFFFFFC4UL);   // 0xFFFFFF00 + 200 (no wrap yet)
+  EXPECT_EQ(retry_at, 0xFFFFFFC8UL);   // 0xFFFFFF00 + 200 (no wrap yet)
 
   // 0x20 - 0xFFFFFF00 wraps to 0x120 = 288: quiet period elapsed -> new burst
   EXPECT_TRUE(policy.canStart(0x20UL, 300, 2550, retry_at));
@@ -259,6 +260,7 @@ protected:
     Packet* pkt = dispatcher.obtainNewPacket();
     pkt->header = ROUTE_TYPE_FLOOD;
     pkt->payload_len = payload_len;
+    memset(pkt->payload, 0, payload_len);
     dispatcher.sendPacket(pkt, 0, 0);
     return pkt;
   }

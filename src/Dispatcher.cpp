@@ -316,7 +316,7 @@ bool Dispatcher::startOutboundSend(Packet* pkt) {
   len += Packet::writePath(&raw[len], pkt->path, pkt->path_len);
 
   if (len + pkt->payload_len > MAX_TRANS_UNIT) {
-    MESH_DEBUG_PRINTLN("%s Dispatcher::checkSend(): FATAL: Invalid packet queued... too long, len=%d", getLogDateTime(), len + pkt->payload_len);
+    MESH_DEBUG_PRINTLN("%s Dispatcher::startOutboundSend(): FATAL: Invalid packet queued... too long, len=%d", getLogDateTime(), len + pkt->payload_len);
     return false;
   }
   memcpy(&raw[len], pkt->payload, pkt->payload_len); len += pkt->payload_len;
@@ -325,7 +325,7 @@ bool Dispatcher::startOutboundSend(Packet* pkt) {
   outbound_start = _ms->getMillis();
   bool success = _radio->startSendRaw(raw, len);
   if (!success) {
-    MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): ERROR: send start failed!", getLogDateTime());
+    MESH_DEBUG_PRINTLN("%s Dispatcher::startOutboundSend(): ERROR: send start failed!", getLogDateTime());
 
     logTxFail(pkt, pkt->getRawLength());
 

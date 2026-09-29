@@ -109,8 +109,30 @@ Proof gaps (all `unverified` — TSAO asked not to build or run tests):
 - Hardware checks from the plan (SDR / TX pin: burst ≤ 1000 ms, silence ≥ X, no RX during burst) not performed.
 - Dispatcher `#error` guard for missing `TX_BURST_QUIET_MS` not exercised.
 
+### 2026-09-29 21:25 +08 — Claude — claude-opus-5-5 — medium
+
+Review fixes (from review-cn470-burst, verified by hand arithmetic):
+
+- `TxAirtimeBudget.RefillHandlesMillisWrap`: `now` was `0x90` (elapsed 160, refill 80 < MTU/2, so both assertions would fail). Changed to `0x150` (elapsed 352, refill 176), which matches the comment.
+- `TxBurst.HandlesMillisWrapAround`: expected `retry_at` was `0xFFFFFFC4`; `0xFFFFFF00 + 200` is `0xFFFFFFC8`.
+- Test helper `queuePacket()` now zeroes the payload bytes that `startOutboundSend()` copies.
+- Log tags in `startOutboundSend()` now name that function.
+
+Known behavior, not changed: when `canStart()` fails, `next_tx_time = retry_at`. If a smaller, higher-priority packet that fits is queued before `retry_at`, it still waits until `retry_at`, and then a new burst starts. This only delays TX, so the burst limit still holds. Decision 1 ("a later packet that fits is sent without waiting") holds when the burst ended because the queue was empty, since no `retry_at` is set then. The same staleness exists in the budget path today.
+
+Not changed (review nits): `PacketQueue::bestIndex()` is public; `TxPolicy` has no virtual destructor (never deleted through a base pointer); `TX_BURST_MAX_MS > 8000` would set the non-RX watchdog error flag.
+
 ## Final Result
 
 Implemented as planned: compile-time selectable TX policy (`TX_POLICY_BURST`), default airtime-budget behavior moved unchanged into `AirtimeBudgetTxPolicy`, new `BurstTxPolicy` with chaining that never switches the radio to RX mid-burst, quiet period `TX_BURST_QUIET_MS` between bursts, oversized-packet drop, `PacketManager::peekNextOutbound()`, and googletest coverage for both policies and both Dispatcher wirings. Tests and builds are unverified per the no-build constraint; hardware validation pending.
 
 ## Review
+
+### 2026-09-29 21:25 +08 — review-cn470-burst (subagent) — glm-5.3-flash — high
+
+Findings: 2 blocking (wrong constants in the two millis-wrap tests), 1 should-fix (stale `next_tx_time` after a failed `canStart()`), 6 nits. Blocking findings and 2 nits fixed in the Work Log entry above; the should-fix is documented as known behavior.
+
+Reviewed: full diff 37a71d93..HEAD, plan/work doc, old `Dispatcher` at 37a71d93, `TxPolicy.*`, `StaticPoolPacketManager.*`, `RadioLibWrappers.cpp` and all `mesh::Radio` subclasses, tests, `platformio.ini`, mocks.
+Checks: line-by-line old/new comparison of `Dispatcher` paths; hand execution of all 20 tests (18 pass on paper before fixes; the 2 failing ones fixed); radio state trace through chaining; include resolution for the native envs; `#error` guard reachability. Nothing compiled or run.
+Gaps: `pio test -e native`, `pio test -e native_burst`, firmware target builds, hardware burst timing, ESPNOW radio under burst mode, out-of-repo `PacketManager` implementations. Review fixes were not re-reviewed by a subagent.
+Result: UNVERIFIED

@@ -3,6 +3,7 @@
 #include <MeshCore.h>
 #include <Identity.h>
 #include <Packet.h>
+#include <TxPolicy.h>
 #include <Utils.h>
 #include <string.h>
 
@@ -91,6 +92,7 @@ public:
 
   virtual void queueOutbound(Packet* packet, uint8_t priority, uint32_t scheduled_for) = 0;
   virtual Packet* getNextOutbound(uint32_t now) = 0;    // by priority
+  virtual Packet* peekNextOutbound(uint32_t now) = 0;   // same selection as getNextOutbound(), without removing
   virtual int getOutboundCount(uint32_t now) const = 0;
   virtual int getOutboundTotal() const = 0;
   virtual int getFreeCount() const = 0;
@@ -115,7 +117,7 @@ typedef uint32_t  DispatcherAction;
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
  *      and scheduling of outbound Packets.
 */
-class Dispatcher {
+class Dispatcher : private TxPolicyEnv {
   Packet* outbound;  // current outbound packet
   unsigned long outbound_expiry, outbound_start, total_air_time, rx_air_time;
   unsigned long next_tx_time;
@@ -125,12 +127,8 @@ class Dispatcher {
   bool  prev_isrecv_mode;
   uint32_t n_sent_flood, n_sent_direct;
   uint32_t n_recv_flood, n_recv_direct;
-  unsigned long tx_budget_ms;
-  unsigned long last_budget_update;
-  unsigned long duty_cycle_window_ms;
 
   void processRecvPacket(Packet* pkt);
-  void updateTxBudget();
 
 protected:
   PacketManager* _mgr;
@@ -140,6 +138,13 @@ protected:
 
   Dispatcher(Radio& radio, MillisecondClock& ms, PacketManager& mgr)
     : _radio(&radio), _ms(&ms), _mgr(&mgr)
+#if defined(TX_POLICY_BURST)
+      , burst_policy(TX_BURST_MAX_MS, TX_BURST_QUIET_MS)
+      , tx_policy(&burst_policy)
+#else
+      , budget_policy(*this)
+      , tx_policy(&budget_policy)
+#endif
   {
     outbound = NULL;
     total_air_time = rx_air_time = 0;
@@ -149,9 +154,6 @@ protected:
     _err_flags = 0;
     radio_nonrx_start = 0;
     prev_isrecv_mode = true;
-    tx_budget_ms = 0;
-    last_budget_update = 0;
-    duty_cycle_window_ms = 3600000;
   }
 
   virtual DispatcherAction onRecvPacket(Packet* pkt) = 0;
@@ -182,7 +184,7 @@ public:
 
   unsigned long getTotalAirTime() const { return total_air_time; }
   unsigned long getReceiveAirTime() const {return rx_air_time; }
-  unsigned long getRemainingTxBudget() const { return tx_budget_ms; }
+  unsigned long getRemainingTxBudget() const { return tx_policy->remainingTxMs((uint32_t)_ms->getMillis()); }
   uint32_t getNumSentFlood() const { return n_sent_flood; }
   uint32_t getNumSentDirect() const { return n_sent_direct; }
   uint32_t getNumRecvFlood() const { return n_recv_flood; }
@@ -201,6 +203,15 @@ public:
 private:
   void checkRecv();
   void checkSend();
+  bool startOutboundSend(Packet* pkt);   // shared by first send and chained sends
+
+#if defined(TX_POLICY_BURST)
+  BurstTxPolicy burst_policy;
+  TxPolicy* tx_policy;
+#else
+  AirtimeBudgetTxPolicy budget_policy;
+  TxPolicy* tx_policy;
+#endif
 };
 
 }

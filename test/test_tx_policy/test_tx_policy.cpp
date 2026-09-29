@@ -2,6 +2,8 @@
 #include "TxPolicy.h"
 #include "Dispatcher.h"
 #include "helpers/StaticPoolPacketManager.h"
+#include "helpers/CommonRadioPrefs.h"
+#include "target.h"
 
 #include <cstring>
 #include <string>
@@ -15,8 +17,12 @@ class MockBudgetEnv : public TxPolicyEnv {
 public:
   float factor = 1.0f;
   unsigned long window_ms = 3600000;
+  uint32_t burst_max_ms = 1000;
+  uint32_t burst_quiet_ms = 200;
   float getAirtimeBudgetFactor() const override { return factor; }
   unsigned long getDutyCycleWindowMs() const override { return window_ms; }
+  uint32_t getBurstMaxTxMs() const override { return burst_max_ms; }
+  uint32_t getBurstQuietMs() const override { return burst_quiet_ms; }
 };
 
 class MockClock : public MillisecondClock {
@@ -46,7 +52,14 @@ public:
   TestDispatcher(Radio& radio, MillisecondClock& ms, PacketManager& mgr)
     : Dispatcher(radio, ms, mgr) { }
   DispatcherAction onRecvPacket(Packet*) override { return ACTION_RELEASE; }
+
+  uint8_t tx_policy_mode = TX_POLICY_MODE_BUDGET;   // runtime-selectable, like the examples read from prefs
+protected:
+  uint8_t getTxPolicyMode() const override { return tx_policy_mode; }
 };
+
+// definition of the radio_driver symbol referenced by CommonRadioPrefs.cpp
+MockRadioDriver radio_driver;
 
 // ------------------------------------------------------- airtime budget policy
 
@@ -139,10 +152,19 @@ TEST(TxAirtimeBudget, DoesNotChain) {
 
 // ------------------------------------------------------------ burst policy
 
-TEST(TxBurst, ChainsUntilBurstMax) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+class BurstPolicyTest : public ::testing::Test {
+protected:
+  MockBudgetEnv env;
+  BurstTxPolicy policy{env};
 
+  void SetUp() override {
+    env.burst_max_ms = 1000;
+    env.burst_quiet_ms = 200;
+    policy.begin(0);
+  }
+};
+
+TEST_F(BurstPolicyTest, ChainsUntilBurstMax) {
   uint32_t retry_at;
   EXPECT_TRUE(policy.canStart(0, 300, 2550, retry_at));
 
@@ -155,9 +177,7 @@ TEST(TxBurst, ChainsUntilBurstMax) {
   EXPECT_FALSE(policy.canChain(300));   // 900 + 300 > 1000
 }
 
-TEST(TxBurst, WaitsQuietPeriodWhenPacketDoesNotFit) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, WaitsQuietPeriodWhenPacketDoesNotFit) {
   unsigned long next_tx;
   policy.onTxDone(10, 1000, 10, next_tx);   // burst fully used
 
@@ -171,9 +191,7 @@ TEST(TxBurst, WaitsQuietPeriodWhenPacketDoesNotFit) {
   EXPECT_EQ(retry_at, 210UL);
 }
 
-TEST(TxBurst, GapBelowQuietPeriodDoesNotReset) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, GapBelowQuietPeriodDoesNotReset) {
   unsigned long next_tx;
   policy.onTxDone(10, 800, 10, next_tx);
 
@@ -182,9 +200,7 @@ TEST(TxBurst, GapBelowQuietPeriodDoesNotReset) {
   EXPECT_EQ(retry_at, 210UL);
 }
 
-TEST(TxBurst, FittingPacketSendsWithoutWaiting) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, FittingPacketSendsWithoutWaiting) {
   unsigned long next_tx;
   policy.onTxDone(10, 300, 10, next_tx);
 
@@ -193,17 +209,12 @@ TEST(TxBurst, FittingPacketSendsWithoutWaiting) {
   EXPECT_EQ(retry_at, 50UL);
 }
 
-TEST(TxBurst, RejectsSinglePacketAboveBurstMax) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
-
+TEST_F(BurstPolicyTest, RejectsSinglePacketAboveBurstMax) {
   uint32_t retry_at;
   EXPECT_FALSE(policy.canStart(0, 2000, 2550, retry_at));
 }
 
-TEST(TxBurst, RemainingFallsToZeroAtBurstMax) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, RemainingFallsToZeroAtBurstMax) {
   unsigned long next_tx;
   policy.onTxDone(10, 300, 10, next_tx);
   EXPECT_EQ(policy.remainingTxMs(10), 700UL);
@@ -211,9 +222,7 @@ TEST(TxBurst, RemainingFallsToZeroAtBurstMax) {
   EXPECT_EQ(policy.remainingTxMs(20), 0UL);
 }
 
-TEST(TxBurst, TimeoutEndsBurstAndStartsQuietPeriod) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, TimeoutEndsBurstAndStartsQuietPeriod) {
   unsigned long next_tx;
   policy.onTxDone(10, 300, 10, next_tx);
 
@@ -226,9 +235,7 @@ TEST(TxBurst, TimeoutEndsBurstAndStartsQuietPeriod) {
   EXPECT_TRUE(policy.canStart(250, 100, 2550, retry_at));
 }
 
-TEST(TxBurst, HandlesMillisWrapAround) {
-  BurstTxPolicy policy(1000, 200);
-  policy.begin(0);
+TEST_F(BurstPolicyTest, HandlesMillisWrapAround) {
   unsigned long next_tx;
   policy.onTxDone(0xFFFFFF00UL, 800, 10, next_tx);
 
@@ -240,6 +247,21 @@ TEST(TxBurst, HandlesMillisWrapAround) {
   // 0x20 - 0xFFFFFF00 wraps to 0x120 = 288: quiet period elapsed -> new burst
   EXPECT_TRUE(policy.canStart(0x20UL, 300, 2550, retry_at));
   EXPECT_EQ(retry_at, 0x20UL);
+}
+
+TEST_F(BurstPolicyTest, ReadsLimitsFromEnvAtRuntime) {
+  unsigned long next_tx;
+  policy.onTxDone(10, 800, 10, next_tx);
+
+  env.burst_max_ms = 2000;   // lower limits now fit, higher ones do not
+  EXPECT_TRUE(policy.canChain(1000));   // 800 + 1000 <= 2000
+  EXPECT_FALSE(policy.canChain(1201));   // 800 + 1201 > 2000
+
+  env.burst_max_ms = 1000;
+  env.burst_quiet_ms = 500;   // quiet period now ends at 510, not 210
+  uint32_t retry_at;
+  EXPECT_FALSE(policy.canStart(500, 300, 2550, retry_at));
+  EXPECT_EQ(retry_at, 510UL);
 }
 
 // ------------------------------------------------------------- dispatcher
@@ -265,8 +287,6 @@ protected:
     return pkt;
   }
 };
-
-#ifndef TX_POLICY_BURST
 
 TEST_F(DispatcherTxTest, SendsOnePacketThenResumesRx) {
   queuePacket(10);   // raw len 12 -> est airtime 120ms
@@ -300,9 +320,8 @@ TEST_F(DispatcherTxTest, TimeoutReleasesPacketWithoutDebitingBudget) {
   EXPECT_EQ(mgr.getOutboundTotal(), 0);
 }
 
-#else   // TX_POLICY_BURST
-
 TEST_F(DispatcherTxTest, ChainsPacketsWithoutReturningToRx) {
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;
   queuePacket(28);   // raw len 30 -> est airtime 300ms
   queuePacket(28);
   queuePacket(28);
@@ -327,6 +346,7 @@ TEST_F(DispatcherTxTest, ChainsPacketsWithoutReturningToRx) {
 }
 
 TEST_F(DispatcherTxTest, StopsChainingWhenBurstMaxReached) {
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;
   queuePacket(58);   // raw len 60 -> est airtime 600ms
   queuePacket(58);
 
@@ -350,6 +370,7 @@ TEST_F(DispatcherTxTest, StopsChainingWhenBurstMaxReached) {
 }
 
 TEST_F(DispatcherTxTest, DropsPacketWhoseAirtimeExceedsBurstMax) {
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;
   queuePacket(180);   // raw len 182 -> est airtime 1820ms > 1000
 
   dispatcher.loop();
@@ -358,7 +379,15 @@ TEST_F(DispatcherTxTest, DropsPacketWhoseAirtimeExceedsBurstMax) {
   EXPECT_EQ(mgr.getFreeCount(), 16);   // packet returned to the pool
 }
 
+TEST_F(DispatcherTxTest, OversizedPacketSentInBudgetMode) {
+  queuePacket(180);   // est airtime 1820ms fits the (window-scale) budget
+
+  dispatcher.loop();
+  EXPECT_EQ(radio.send_count, 1);
+}
+
 TEST_F(DispatcherTxTest, TxTimeoutEndsBurstAndStartsQuietPeriod) {
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;
   queuePacket(28);   // est airtime 300ms -> expiry 1000 + 450
   dispatcher.loop();
   EXPECT_EQ(radio.send_count, 1);
@@ -377,7 +406,164 @@ TEST_F(DispatcherTxTest, TxTimeoutEndsBurstAndStartsQuietPeriod) {
   EXPECT_EQ(radio.send_count, 2);
 }
 
-#endif   // TX_POLICY_BURST
+TEST_F(DispatcherTxTest, ModeChangeDuringSendAppliesAfterCompletion) {
+  queuePacket(28);   // budget mode: first packet sent under the budget policy
+  dispatcher.loop();
+  ASSERT_EQ(radio.send_count, 1);
+
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;   // while the send is in flight
+  radio.send_complete = true;
+  clock.value = 1050;
+  dispatcher.loop();
+  // the completion path ran under the budget policy (no burst chaining), and the
+  // radio went back into Rx before checkSend applied the new policy
+  EXPECT_EQ(radio.events, (std::vector<std::string>{"recv", "send", "finished", "recv"}));
+  EXPECT_EQ(dispatcher.getRemainingTxBudget(), 1000UL);   // new policy: full burst allowance
+
+  queuePacket(28);
+  queuePacket(28);
+  clock.value = 1100;
+  dispatcher.loop();
+  EXPECT_EQ(radio.send_count, 2);
+
+  radio.send_complete = true;
+  clock.value = 1150;
+  dispatcher.loop();   // burst chaining is now active: no Rx between the sends
+  EXPECT_EQ(radio.send_count, 3);
+}
+
+TEST_F(DispatcherTxTest, SwitchingBackToBudgetStartsWithFullBudget) {
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BURST;
+  queuePacket(28);
+  dispatcher.loop();
+  ASSERT_EQ(radio.send_count, 1);
+
+  radio.send_complete = true;
+  clock.value = 1050;
+  dispatcher.loop();
+  ASSERT_EQ(dispatcher.getRemainingTxBudget(), 700UL);   // 1000 - 300 burst airtime
+
+  dispatcher.tx_policy_mode = TX_POLICY_MODE_BUDGET;
+  clock.value = 1100;
+  dispatcher.loop();
+  EXPECT_EQ(dispatcher.getRemainingTxBudget(), 1800000UL);   // begin() grants a full window
+}
+
+// ------------------------------------------------------------- tx_policy CLI
+
+// implements the CommonRadioPrefs interface on plain members (defaults as in NodePrefs)
+class TestRadioPrefs : public CommonRadioPrefs {
+  void structure() override { }   // not exercised by handleCommand()
+public:
+  float freq = 0, bw = 0, airtime_factor = 0, rx_delay_base = 0, tx_delay_factor = 0, direct_tx_delay_factor = 0;
+  uint8_t sf = 0, cr = 0, cad_enabled = 0, interference_threshold = 0, rx_boosted_gain = 0;
+  uint8_t tx_power_dbm = 0;
+  uint16_t agc_reset_interval = 0;
+  uint8_t path_hash_mode = 0, multi_acks = 0;
+  uint8_t radio_fem_rxgain = 0, radio_fem_txgain = 0;
+  uint8_t tx_policy = TX_POLICY_MODE_BUDGET;
+  uint32_t burst_max_ms = 1000, burst_quiet_ms = 0;
+
+  float getFreq() const override { return freq; }
+  void setFreq(float f) override { freq = f; markDirty(); }
+  float getBandwidth() const override { return bw; }
+  void setBandwidth(float v) override { bw = v; markDirty(); }
+  uint8_t getSpreadFactor() const override { return sf; }
+  void setSpreadFactor(uint8_t v) override { sf = v; markDirty(); }
+  uint8_t getCodingRate() const override { return cr; }
+  void setCodingRate(uint8_t v) override { cr = v; markDirty(); }
+  float getAirtimeFactor() const override { return airtime_factor; }
+  void setAirtimeFactor(float v) override { airtime_factor = v; markDirty(); }
+  bool isCadEnabled() const override { return cad_enabled; }
+  void setCadEnabled(bool en) override { cad_enabled = en; markDirty(); }
+  uint8_t getIntThresh() const override { return interference_threshold; }
+  void setIntThresh(uint8_t t) override { interference_threshold = t; markDirty(); }
+  uint8_t getRxGain() const override { return rx_boosted_gain; }
+  void setRxGain(uint8_t g) override { rx_boosted_gain = g; markDirty(); }
+  uint8_t getTxPower() const override { return tx_power_dbm; }
+  void setTxPower(uint8_t dbm) override { tx_power_dbm = dbm; markDirty(); }
+  float getRxDelay() const override { return rx_delay_base; }
+  void setRxDelay(float d) override { rx_delay_base = d; markDirty(); }
+  uint16_t getAgcResetInt() const override { return agc_reset_interval; }
+  void setAgcResetInt(uint16_t secs) override { agc_reset_interval = secs; markDirty(); }
+  uint8_t getHashMode() const override { return path_hash_mode; }
+  void setHashMode(uint8_t m) override { path_hash_mode = m; markDirty(); }
+  uint8_t getMultiAcks() const override { return multi_acks; }
+  void setMultiAcks(uint8_t m) override { multi_acks = m; markDirty(); }
+  float getFloodTxDelay() const override { return tx_delay_factor; }
+  void setFloodTxDelay(float d) override { tx_delay_factor = d; markDirty(); }
+  float getDirectTxDelay() const override { return direct_tx_delay_factor; }
+  void setDirectTxDelay(float d) override { direct_tx_delay_factor = d; markDirty(); }
+  uint8_t getFEMRxGain() const override { return radio_fem_rxgain; }
+  void setFEMRxGain(uint8_t g) override { radio_fem_rxgain = g; markDirty(); }
+  uint8_t getFEMTxGain() const override { return radio_fem_txgain; }
+  void setFEMTxGain(uint8_t g) override { radio_fem_txgain = g; markDirty(); }
+  uint8_t getTxPolicyMode() const override { return tx_policy; }
+  void setTxPolicyMode(uint8_t mode) override { tx_policy = mode; markDirty(); }
+  uint32_t getBurstMaxTxMs() const override { return burst_max_ms; }
+  void setBurstMaxTxMs(uint32_t ms) override { burst_max_ms = ms; markDirty(); }
+  uint32_t getBurstQuietMs() const override { return burst_quiet_ms; }
+  void setBurstQuietMs(uint32_t ms) override { burst_quiet_ms = ms; markDirty(); }
+};
+
+TEST(TxPolicyCli, GetReportsBudgetByDefault) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("get tx_policy", 0, reply));
+  EXPECT_STREQ(reply, "> budget");
+}
+
+TEST(TxPolicyCli, SetBudgetIsAccepted) {
+  TestRadioPrefs prefs;
+  prefs.setTxPolicyMode(TX_POLICY_MODE_BURST);
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy budget", 0, reply));
+  EXPECT_STREQ(reply, "OK");
+  EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET);
+}
+
+TEST(TxPolicyCli, SetBurstStoresLimitsAndMode) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy burst 1000 200", 0, reply));
+  EXPECT_STREQ(reply, "OK");
+  EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BURST);
+  EXPECT_EQ(prefs.getBurstMaxTxMs(), 1000UL);
+  EXPECT_EQ(prefs.getBurstQuietMs(), 200UL);
+  ASSERT_TRUE(prefs.handleCommand("get tx_policy", 0, reply));
+  EXPECT_STREQ(reply, "> burst 1000 200");
+}
+
+TEST(TxPolicyCli, SetBurstRequiresBothLimits) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy burst 1000", 0, reply));
+  EXPECT_STREQ(reply, "ERROR: tx_policy burst requires max_ms and quiet_ms");
+  EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET);
+}
+
+TEST(TxPolicyCli, SetBurstRejectsMaxAboveWatchdogLimit) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy burst 8001 200", 0, reply));
+  EXPECT_STREQ(reply, "ERROR: tx_policy max_ms must be 1-8000");
+  EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET);
+}
+
+TEST(TxPolicyCli, SetBurstRejectsZeroQuietTime) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy burst 1000 0", 0, reply));
+  EXPECT_STREQ(reply, "ERROR: tx_policy quiet_ms must be >= 1");
+  EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET);
+}
+
+TEST(TxPolicyCli, SetRejectsUnknownPolicy) {
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy foo", 0, reply));
+  EXPECT_STREQ(reply, "ERROR: tx_policy must be 'budget' or 'burst <max_ms> <quiet_ms>'");
+}
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

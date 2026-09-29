@@ -77,6 +77,39 @@ TEST(CompanionNodePrefs, RxGainSettingsRoundTripIndependently) {
 }
 #endif
 
+// The tx_policy keys are new: prefs saved by older firmware contain none of them, and
+// ConfigSerializer::def() only assigns a value when its key matches, so the in-memory
+// defaults must survive loading such a file.
+TEST(CompanionNodePrefs, MissingTxPolicyKeysKeepDefaults) {
+  ReplayStream input("{radio:{freq:869.618}}");
+  NodePrefs prefs;   // defaults: budget policy, burst limit 1000 ms, quiet time 0
+
+  ASSERT_TRUE(prefs.loadSerial(input));
+  EXPECT_EQ((uint8_t)TX_POLICY_MODE_BUDGET, prefs.getRadioPrefs()->getTxPolicyMode());
+  EXPECT_EQ(1000UL, prefs.getRadioPrefs()->getBurstMaxTxMs());
+  EXPECT_EQ(0UL, prefs.getRadioPrefs()->getBurstQuietMs());
+}
+
+TEST(CompanionNodePrefs, TxPolicyKeysRoundTrip) {
+  NodePrefs saved;
+  saved.getRadioPrefs()->setTxPolicyMode(TX_POLICY_MODE_BURST);
+  saved.getRadioPrefs()->setBurstMaxTxMs(1500);
+  saved.getRadioPrefs()->setBurstQuietMs(300);
+
+  CaptureStream output;
+  ASSERT_TRUE(saved.saveSerial(output));
+  EXPECT_NE(std::string::npos, output.text().find("tx_policy:1"));
+  EXPECT_NE(std::string::npos, output.text().find("burst_max_ms:1500"));
+  EXPECT_NE(std::string::npos, output.text().find("burst_quiet_ms:300"));
+
+  ReplayStream input(output.text().c_str());
+  NodePrefs loaded;
+  ASSERT_TRUE(loaded.loadSerial(input));
+  EXPECT_EQ((uint8_t)TX_POLICY_MODE_BURST, loaded.getRadioPrefs()->getTxPolicyMode());
+  EXPECT_EQ(1500UL, loaded.getRadioPrefs()->getBurstMaxTxMs());
+  EXPECT_EQ(300UL, loaded.getRadioPrefs()->getBurstQuietMs());
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

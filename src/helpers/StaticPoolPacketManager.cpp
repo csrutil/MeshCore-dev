@@ -48,7 +48,7 @@ mesh::Packet* PacketQueue::get(uint32_t now) {
   return top;
 }
 
-mesh::Packet* PacketQueue::peek(uint32_t now) {
+mesh::Packet* PacketQueue::find(uint32_t now) {
   int best_idx = bestIndex(now);
   return (best_idx < 0) ? NULL : _table[best_idx];
 }
@@ -109,8 +109,8 @@ mesh::Packet* StaticPoolPacketManager::getNextOutbound(uint32_t now) {
   return send_queue.get(now);
 }
 
-mesh::Packet* StaticPoolPacketManager::peekNextOutbound(uint32_t now) {
-  return send_queue.peek(now);
+mesh::Packet* StaticPoolPacketManager::findNextOutbound(uint32_t now) {
+  return send_queue.find(now);
 }
 
 int  StaticPoolPacketManager::getOutboundCount(uint32_t now) const {

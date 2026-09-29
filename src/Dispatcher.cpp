@@ -82,7 +82,7 @@ void Dispatcher::loop() {
 
       // Burst chaining: send the next ready packet immediately, without going back
       // into Rx. Must return before checkRecv(), since recvRaw() restarts Rx.
-      Packet* next = _mgr->peekNextOutbound(_ms->getMillis());
+      Packet* next = _mgr->findNextOutbound(_ms->getMillis());
       if (next && tx_policy->canChain(_radio->getEstAirtimeFor(next->getRawLength()))) {
         outbound = _mgr->getNextOutbound(_ms->getMillis());
         if (outbound && startOutboundSend(outbound)) {
@@ -253,7 +253,7 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 }
 
 void Dispatcher::checkSend() {
-  Packet* pkt = _mgr->peekNextOutbound(_ms->getMillis());
+  Packet* pkt = _mgr->findNextOutbound(_ms->getMillis());
   if (pkt == NULL) return;
 
   uint32_t pkt_airtime = _radio->getEstAirtimeFor(pkt->getRawLength());

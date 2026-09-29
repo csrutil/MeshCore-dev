@@ -122,9 +122,13 @@ Known behavior, not changed: when `canStart()` fails, `next_tx_time = retry_at`.
 
 Not changed (review nits): `PacketQueue::bestIndex()` is public; `TxPolicy` has no virtual destructor (never deleted through a base pointer); `TX_BURST_MAX_MS > 8000` would set the non-RX watchdog error flag.
 
+### 2026-09-29 21:45 +08 — Claude — claude-opus-5-5 — medium
+
+Renamed `PacketManager::peekNextOutbound()` → `findNextOutbound()` and `PacketQueue::peek()` → `find()` (TSAO: `peek` read as "pick from the queue"). "find" does not change the queue; "get" removes. Behavior unchanged. Earlier entries keep the old name.
+
 ## Final Result
 
-Implemented as planned: compile-time selectable TX policy (`TX_POLICY_BURST`), default airtime-budget behavior moved unchanged into `AirtimeBudgetTxPolicy`, new `BurstTxPolicy` with chaining that never switches the radio to RX mid-burst, quiet period `TX_BURST_QUIET_MS` between bursts, oversized-packet drop, `PacketManager::peekNextOutbound()`, and googletest coverage for both policies and both Dispatcher wirings. Tests and builds are unverified per the no-build constraint; hardware validation pending.
+Implemented as planned: compile-time selectable TX policy (`TX_POLICY_BURST`), default airtime-budget behavior moved unchanged into `AirtimeBudgetTxPolicy`, new `BurstTxPolicy` with chaining that never switches the radio to RX mid-burst, quiet period `TX_BURST_QUIET_MS` between bursts, oversized-packet drop, `PacketManager::findNextOutbound()`, and googletest coverage for both policies and both Dispatcher wirings. Tests and builds are unverified per the no-build constraint; hardware validation pending.
 
 ## Review
 

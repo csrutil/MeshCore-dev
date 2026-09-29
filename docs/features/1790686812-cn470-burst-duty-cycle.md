@@ -152,7 +152,11 @@ Known behavior, not changed: when `canStart()` fails, `next_tx_time = retry_at`.
 
 Not changed (review nits): `PacketQueue::bestIndex()` is public; `TxPolicy` has no virtual destructor (never deleted through a base pointer); `TX_BURST_MAX_MS > 8000` would set the non-RX watchdog error flag.
 
-### 2026-09-29 21:40 +08 — Claude — unknown — not specified
+### 2026-09-29 21:45 +08 — Claude — claude-opus-5-5 — medium
+
+Renamed `PacketManager::peekNextOutbound()` → `findNextOutbound()` and `PacketQueue::peek()` → `find()` (TSAO: `peek` read as "pick from the queue"). "find" does not change the queue; "get" removes. Behavior unchanged. Earlier entries keep the old name.
+
+### 2026-09-29 21:50 +08 — Claude — unknown — not specified
 
 Implemented Revision 1 (runtime policy selection) on top of the compile-time version. TSAO asked not to build; all results `unverified`.
 
@@ -186,9 +190,6 @@ Proof gaps (all `unverified` — TSAO asked not to build or run tests):
 - `CommonCLI.h` `NodePrefs` prefs round-trip itself not host-tested (mechanism verified statically + via the companion copy test).
 - Hardware checks (SDR / TX pin: burst <= B, silence >= X, no RX during burst) not performed; legacy `/com_prefs` upgrade path not exercised.
 
-### 2026-09-29 21:45 +08 — Claude — claude-opus-5-5 — medium
-
-Renamed `PacketManager::peekNextOutbound()` → `findNextOutbound()` and `PacketQueue::peek()` → `find()` (TSAO: `peek` read as "pick from the queue"). "find" does not change the queue; "get" removes. Behavior unchanged. Earlier entries keep the old name.
 
 ## Final Result
 

@@ -81,6 +81,36 @@ public:
 - Moving the budget into a policy changes the path every build uses. The budget-policy tests guard against this.
 - The radio cannot receive during a burst (≤ B). This is well under the 8 s non-RX watchdog.
 
+### 2026-09-29 21:35 +08 — Claude (with TSAO) — claude-opus-5-5 — medium — Revision 1: runtime `tx_policy` CLI config
+
+Why: the burst policy is not only for CN470. TSAO also wants it for US, so one firmware must support both policies with values set per node. TSAO decisions: select the policy by the CLI config `tx_policy`; set it by CLI; no lock define.
+
+Replaces decision 4 (compile-time `#define`s). Decisions 1–3 stay.
+
+Behavior:
+
+- CLI (in `CommonRadioPrefs::handleCommand`, next to `af` / `dutycycle`):
+  - `get tx_policy` → `> budget` or `> burst <max_ms> <quiet_ms>`.
+  - `set tx_policy budget`.
+  - `set tx_policy burst <max_ms> <quiet_ms>`. Both values are required (there is no safe default for the quiet time). `max_ms` 1..8000 (above 8000 every burst trips the 8 s non-RX watchdog flag). `quiet_ms` ≥ 1. Error reply on bad input, the same style as `set af`.
+- Saved prefs: `tx_policy` (uint8: 0 = budget, 1 = burst), `burst_max_ms`, `burst_quiet_ms`, via `def(...)` in both `NodePrefs` copies (`src/helpers/CommonCLI.h`, `examples/companion_radio/NodePrefs.h`). Defaults: budget, 1000, 0. A prefs file without these keys must load as budget (verify how `ConfigSerializer` handles missing keys). Do not add them to the legacy binary loader.
+- `CommonRadioPrefs` gets getter/setter pairs for the three values, implemented in both `RadioPrefs`.
+- `Dispatcher`: remove `TX_POLICY_BURST` / `TX_BURST_MAX_MS` / `TX_BURST_QUIET_MS` and the `#error`. Add virtuals `getTxPolicyMode()` (default budget), `getBurstMaxTxMs()`, `getBurstQuietMs()`. Hold both policy objects. When the mode changes and no send is in flight, switch `tx_policy` and call `begin(now)` on the new policy. `BurstTxPolicy` reads B and X at runtime through `TxPolicyEnv` (like the budget policy reads `af`), not constructor constants. The oversized-packet drop uses the runtime B and only applies in burst mode.
+- Examples: override the three virtuals from `_prefs` wherever `getAirtimeBudgetFactor()` is overridden from `NodePrefs` (repeater, room server, sensor, companion). `simple_secure_chat` has its own prefs without `CommonRadioPrefs`: leave it on the default budget policy.
+- Docs: add the new CLI commands to `docs/cli_commands.md` next to `af` / `dutycycle`.
+
+Known effects:
+
+- Switching to budget calls `begin()`, which gives a full budget at once (the same as at boot).
+- Changing B or X while in burst mode applies from the next check. If `burst_used` is already above a smaller new B, TX waits for the quiet period.
+- US values (burst limit, quiet time, or other rules such as dwell time) are not checked. The config only provides the mechanism.
+
+Validation:
+
+- One `[env:native]` run covers both policies (remove `[env:native_burst]`, since the policy is no longer compile-time).
+- Tests: policy tests with runtime B/X; Dispatcher in budget and burst mode; switching mode at runtime (no switch while a send is in flight); CLI parse and validation for `get/set tx_policy`; prefs round-trip and a prefs file without the new keys, if the native env can reach these classes with few new mocks, otherwise a recorded proof gap.
+- TSAO asked not to build: all results `unverified` until `pio test -e native` and firmware builds run.
+
 ## Work Log
 
 ### 2026-09-29 21:10 +08 — Claude — unknown — not specified

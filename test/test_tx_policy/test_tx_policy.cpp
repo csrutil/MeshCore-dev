@@ -58,8 +58,6 @@ protected:
   uint8_t getTxPolicyMode() const override { return tx_policy_mode; }
 };
 
-// definition of the radio_driver symbol referenced by CommonRadioPrefs.cpp
-MockRadioDriver radio_driver;
 
 // ------------------------------------------------------- airtime budget policy
 
@@ -554,8 +552,28 @@ TEST(TxPolicyCli, SetBurstRejectsZeroQuietTime) {
   TestRadioPrefs prefs;
   char reply[256];
   ASSERT_TRUE(prefs.handleCommand("set tx_policy burst 1000 0", 0, reply));
-  EXPECT_STREQ(reply, "ERROR: tx_policy quiet_ms must be >= 1");
+  EXPECT_STREQ(reply, "ERROR: tx_policy quiet_ms must be 1-3600000");
   EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET);
+}
+
+TEST(TxPolicyCli, SetBurstRejectsNegativeOrNonNumericValues) {
+  const char* cmds[] = {
+    "set tx_policy burst 1000 -1",
+    "set tx_policy burst 1000 99999999999",
+    "set tx_policy burst 1000 3600001",
+    "set tx_policy burst 1000 20x",
+  };
+  for (const char* cmd : cmds) {
+    TestRadioPrefs prefs;
+    char reply[256];
+    ASSERT_TRUE(prefs.handleCommand(cmd, 0, reply));
+    EXPECT_STREQ(reply, "ERROR: tx_policy quiet_ms must be 1-3600000") << cmd;
+    EXPECT_EQ(prefs.getTxPolicyMode(), (uint8_t)TX_POLICY_MODE_BUDGET) << cmd;
+  }
+  TestRadioPrefs prefs;
+  char reply[256];
+  ASSERT_TRUE(prefs.handleCommand("set tx_policy burst -5 200", 0, reply));
+  EXPECT_STREQ(reply, "ERROR: tx_policy max_ms must be 1-8000");
 }
 
 TEST(TxPolicyCli, SetRejectsUnknownPolicy) {

@@ -11,4 +11,5 @@ public:
 
 #define WRAPPER_CLASS MockRadioDriver
 
-extern MockRadioDriver radio_driver;
+// inline: every test binary in [env:native] links CommonRadioPrefs.cpp
+inline MockRadioDriver radio_driver;

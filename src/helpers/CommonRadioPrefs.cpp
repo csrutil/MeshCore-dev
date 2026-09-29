@@ -28,6 +28,20 @@ bool CommonRadioPrefs::setByKey(const char* key, const char* value) {
   return false;
 }
 
+// Plain decimal only: atol() would turn "-1" into a huge unsigned quiet time.
+static bool parseMillis(const char* s, uint32_t min_ms, uint32_t max_ms, uint32_t& out) {
+  if (*s == 0) return false;
+  uint32_t v = 0;
+  for (; *s; s++) {
+    if (*s < '0' || *s > '9') return false;
+    v = v * 10 + (*s - '0');
+    if (v > max_ms) return false;
+  }
+  if (v < min_ms) return false;
+  out = v;
+  return true;
+}
+
 bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timestamp, char* reply) {
   if (strcmp(command, "get radio") == 0) {
     char freq[16], bw[16];
@@ -109,7 +123,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
   }
   if (memcmp(command, "set tx_policy ", 14) == 0) {
     char tmp[64];
-    strcpy(tmp, &command[14]);
+    StrHelper::strncpy(tmp, &command[14], sizeof(tmp));
     const char* parts[3];
     int num = mesh::Utils::parseTextParts(tmp, parts, 3);
     if (num > 0 && strcmp(parts[0], "budget") == 0) {
@@ -119,12 +133,11 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
       if (num < 3) {   // no safe default for the quiet time
         strcpy(reply, "ERROR: tx_policy burst requires max_ms and quiet_ms");
       } else {
-        uint32_t max_ms = atol(parts[1]);
-        uint32_t quiet_ms = atol(parts[2]);
-        if (max_ms < 1 || max_ms > 8000) {   // above 8000 every burst trips the non-Rx watchdog flag
+        uint32_t max_ms, quiet_ms;
+        if (!parseMillis(parts[1], 1, 8000, max_ms)) {   // longer bursts trip the 8 s non-Rx watchdog flag
           strcpy(reply, "ERROR: tx_policy max_ms must be 1-8000");
-        } else if (quiet_ms < 1) {
-          strcpy(reply, "ERROR: tx_policy quiet_ms must be >= 1");
+        } else if (!parseMillis(parts[2], 1, 3600000, quiet_ms)) {
+          strcpy(reply, "ERROR: tx_policy quiet_ms must be 1-3600000");
         } else {
           setBurstMaxTxMs(max_ms);
           setBurstQuietMs(quiet_ms);

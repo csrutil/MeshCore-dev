@@ -191,6 +191,16 @@ Proof gaps (all `unverified` — TSAO asked not to build or run tests):
 - Hardware checks (SDR / TX pin: burst <= B, silence >= X, no RX during burst) not performed; legacy `/com_prefs` upgrade path not exercised.
 
 
+### 2026-09-29 22:00 +08 — Claude — claude-opus-5-5 — medium
+
+Review fixes for Revision 1 (from review-tx-policy-cli, confirmed by reading the code):
+
+- Native link: `CommonRadioPrefs.cpp` is linked into every `[env:native]` test binary, but `radio_driver` was only defined in `test_tx_policy.cpp`. The other test binaries would fail to link. `test/mocks/target.h` now defines it as a C++17 `inline` variable; the definition in the test file is removed.
+- `set tx_policy`: the argument copy into `tmp[64]` used `strcpy` from a command buffer of up to 160 chars. It now uses `StrHelper::strncpy`.
+- `set tx_policy burst`: `atol()` turned `-1` or an overflowing number into a huge `uint32_t` quiet time (TX stops for weeks without an error). Both values now go through `parseMillis()`: plain decimal digits only, range checked while parsing. `quiet_ms` is now limited to 1–3600000 (1 h, the same as the budget window; my choice, there is no source for a limit). Tests and `docs/cli_commands.md` updated.
+
+Not changed (review nits): the JSON prefs keys are not validated on load (the same as every other JSON pref); `next_tx_time` is not cleared on a policy switch (only delays the first TX); C-style casts in `updateTxPolicy()`; the watchdog comment at exactly 8000 ms.
+
 ## Final Result
 
 Implemented as planned, now under Revision 1: the TX policy is selected at runtime by the CLI config `tx_policy` (0 = budget, default, 1 = burst) with `burst_max_ms` / `burst_quiet_ms` prefs; `Dispatcher` holds both policy objects and switches (with `begin(now)`) when the mode changes and no send is in flight; `BurstTxPolicy` reads its limits at runtime through `TxPolicyEnv`; the oversized-packet drop uses the runtime limit in burst mode only; both `NodePrefs` copies persist the three keys with defaults budget / 1000 / 0 and older prefs files keep those defaults; CLI `get/set tx_policy` documented in `docs/cli_commands.md`; no compile-time defines remain. Default behaviour (budget, no config) matches the code at 37a71d93. Googletest coverage for both policies, runtime mode switching, the CLI parsing and the prefs round-trip/missing-key cases. Tests and builds are unverified per the no-build constraint; hardware validation pending.
@@ -204,4 +214,13 @@ Findings: 2 blocking (wrong constants in the two millis-wrap tests), 1 should-fi
 Reviewed: full diff 37a71d93..HEAD, plan/work doc, old `Dispatcher` at 37a71d93, `TxPolicy.*`, `StaticPoolPacketManager.*`, `RadioLibWrappers.cpp` and all `mesh::Radio` subclasses, tests, `platformio.ini`, mocks.
 Checks: line-by-line old/new comparison of `Dispatcher` paths; hand execution of all 20 tests (18 pass on paper before fixes; the 2 failing ones fixed); radio state trace through chaining; include resolution for the native envs; `#error` guard reachability. Nothing compiled or run.
 Gaps: `pio test -e native`, `pio test -e native_burst`, firmware target builds, hardware burst timing, ESPNOW radio under burst mode, out-of-repo `PacketManager` implementations. Review fixes were not re-reviewed by a subagent.
+Result: UNVERIFIED
+
+### 2026-09-29 22:00 +08 — review-tx-policy-cli (subagent) — glm-5.3-flash — high
+
+Findings: 1 blocking (native link of `radio_driver`), 2 should-fix (`strcpy` overflow, `atol` wrap of negative `quiet_ms`), 4 nits. Blocking and should-fix items fixed in the Work Log entry above; nits recorded there.
+
+Reviewed: `git diff da38efe5..HEAD` with the full feature diff where needed, Revision 1, `ConfigSerializer`, both `NodePrefs`, legacy loaders, CLI dispatch, examples, mocks, `platformio.ini`, `docs/cli_commands.md`.
+Checks: default budget path compared line by line with 37a71d93; switching and prefs missing-key behavior traced; CLI parsing traced. Nothing compiled or run.
+Gaps: `pio test -e native`, firmware builds, hardware timing. The fixes were not reviewed again by a subagent.
 Result: UNVERIFIED

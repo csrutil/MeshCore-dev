@@ -605,7 +605,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 **Parameters:**
 - `max_ms`: maximum total transmit airtime of one burst, in milliseconds (1-8000)
-- `quiet_ms`: minimum quiet time between bursts, in milliseconds (at least 1); both values are required
+- `quiet_ms`: minimum quiet time between bursts, in milliseconds (1-3600000); both values are required
 
 **Default:** `budget` (burst limit 1000 ms, quiet time 0)
 

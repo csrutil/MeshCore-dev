@@ -121,6 +121,9 @@ protected:
 
   // Mesh overrides
   float getAirtimeBudgetFactor() const override;
+  uint8_t getTxPolicyMode() const override;
+  uint32_t getBurstMaxTxMs() const override;
+  uint32_t getBurstQuietMs() const override;
   bool allowPacketForward(const mesh::Packet* packet) override;
   int calcRxDelay(float score, uint32_t air_time) const override;
   uint32_t getRetransmitDelay(const mesh::Packet* packet) override;

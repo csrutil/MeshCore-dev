@@ -128,6 +128,15 @@ public:
 
 protected:
   float getAirtimeBudgetFactor() const override;
+  uint8_t getTxPolicyMode() const override {
+    return _prefs.tx_policy;
+  }
+  uint32_t getBurstMaxTxMs() const override {
+    return _prefs.burst_max_ms;
+  }
+  uint32_t getBurstQuietMs() const override {
+    return _prefs.burst_quiet_ms;
+  }
   int getInterferenceThreshold() const override;
   bool getCADEnabled() const override;
   int getAGCResetInterval() const override {

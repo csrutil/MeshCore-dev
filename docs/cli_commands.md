@@ -596,6 +596,31 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+#### View or change the TX policy
+
+**Usage:**
+- `get tx_policy`
+- `set tx_policy budget`
+- `set tx_policy burst <max_ms> <quiet_ms>`
+
+**Parameters:**
+- `max_ms`: maximum total transmit airtime of one burst, in milliseconds (1-8000)
+- `quiet_ms`: minimum quiet time between bursts, in milliseconds (1-3600000); both values are required
+
+**Default:** `budget` (burst limit 1000 ms, quiet time 0)
+
+**Modes:**
+- `budget` — after each transmission the radio waits until the airtime budget has refilled enough for the next one (see [`get/set dutycycle`](#view-or-change-the-duty-cycle-limit) / [`get/set af`](#view-or-change-the-airtime-factor-duty-cycle-limit)). This is the default.
+- `burst` — queued packets are transmitted back-to-back, without switching the radio back to receive between them, until the total transmit airtime of the burst reaches `max_ms`; then the radio stays quiet for `quiet_ms` before the next burst.
+
+**Examples:**
+- `set tx_policy budget` — use the airtime budget limit (default)
+- `set tx_policy burst 1000 200` — bursts of up to 1 second of airtime, then at least 200 ms of quiet
+
+> **Note:** The policy and its limits are a mechanism only; you are responsible for choosing values that comply with your jurisdiction and channel plan.
+
+---
+
 #### View or change the local interference threshold
 **Usage:**
 - `get int.thresh`

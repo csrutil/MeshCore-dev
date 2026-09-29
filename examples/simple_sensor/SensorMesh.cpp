@@ -316,6 +316,18 @@ float SensorMesh::getAirtimeBudgetFactor() const {
   return _prefs.airtime_factor;
 }
 
+uint8_t SensorMesh::getTxPolicyMode() const {
+  return _prefs.tx_policy;
+}
+
+uint32_t SensorMesh::getBurstMaxTxMs() const {
+  return _prefs.burst_max_ms;
+}
+
+uint32_t SensorMesh::getBurstQuietMs() const {
+  return _prefs.burst_quiet_ms;
+}
+
 bool SensorMesh::allowPacketForward(const mesh::Packet* packet) {
   if (_prefs.disable_fwd) return false;
   if (packet->isRouteFlood() && packet->getPathHashCount() >= _prefs.flood_max) return false;

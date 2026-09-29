@@ -11,9 +11,11 @@ class PacketQueue {
 public:
   PacketQueue(int max_entries);
   mesh::Packet* get(uint32_t now);
+  mesh::Packet* find(uint32_t now);    // same selection as get(), without removing
   bool add(mesh::Packet* packet, uint8_t priority, uint32_t scheduled_for);
   int count() const { return _num; }
   int countBefore(uint32_t now) const;
+  int bestIndex(uint32_t now) const;
   mesh::Packet* itemAt(int i) const {
     if (i < 0 || i >= _num) return NULL;
     return _table[i];
@@ -31,6 +33,7 @@ public:
   void free(mesh::Packet* packet) override;
   void queueOutbound(mesh::Packet* packet, uint8_t priority, uint32_t scheduled_for) override;
   mesh::Packet* getNextOutbound(uint32_t now) override;
+  mesh::Packet* findNextOutbound(uint32_t now) override;
   int getOutboundCount(uint32_t now) const override;
   int getOutboundTotal() const override;
   int getFreeCount() const override;

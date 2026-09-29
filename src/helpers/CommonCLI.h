@@ -71,6 +71,9 @@ public:
   uint8_t path_hash_mode = 0;   // which path mode to use when sending
   uint8_t loop_detect = 0;
   uint8_t cad_enabled = 0;      // hardware Channel Activity Detection before TX (boolean)
+  uint8_t tx_policy = TX_POLICY_MODE_BUDGET;   // 0 = airtime budget, 1 = burst
+  uint32_t burst_max_ms = 1000;   // max total estimated TX airtime per burst (burst mode)
+  uint32_t burst_quiet_ms = 0;   // quiet time between bursts (burst mode)
   uint8_t extra_sf[4];
 
 private:
@@ -89,6 +92,9 @@ private:
       def("fem_txgain", _parent->radio_fem_txgain);
       def("tx", _parent->tx_power_dbm);
       def("af", _parent->airtime_factor);
+      def("tx_policy", _parent->tx_policy);
+      def("burst_max_ms", _parent->burst_max_ms);
+      def("burst_quiet_ms", _parent->burst_quiet_ms);
       def("rxdelay", _parent->rx_delay_base);
       def("f_txdelay", _parent->tx_delay_factor);
       def("d_txdelay", _parent->direct_tx_delay_factor);
@@ -133,6 +139,12 @@ private:
     void setFEMRxGain(uint8_t g) override { _parent->radio_fem_rxgain = g; markDirty(); }
     uint8_t getFEMTxGain() const override { return _parent->radio_fem_txgain; }
     void setFEMTxGain(uint8_t g) override { _parent->radio_fem_txgain = g; markDirty(); }
+    uint8_t getTxPolicyMode() const override { return _parent->tx_policy; }
+    void setTxPolicyMode(uint8_t mode) override { _parent->tx_policy = mode; markDirty(); }
+    uint32_t getBurstMaxTxMs() const override { return _parent->burst_max_ms; }
+    void setBurstMaxTxMs(uint32_t ms) override { _parent->burst_max_ms = ms; markDirty(); }
+    uint32_t getBurstQuietMs() const override { return _parent->burst_quiet_ms; }
+    void setBurstQuietMs(uint32_t ms) override { _parent->burst_quiet_ms = ms; markDirty(); }
   };
   RadioPrefs radio;
 
